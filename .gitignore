@@ -1,0 +1,10 @@
+**/bin/
+**/obj/
+release/
+package/
+dist/
+.vs/
+*.user
+*.log
+config.json
+config.json.*

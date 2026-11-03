@@ -1,0 +1,55 @@
+name: Build Windows and publish preview
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Test and publish Windows x64
+        run: ./build.ps1
+      - name: Package portable application
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force package, dist | Out-Null
+          Copy-Item release/Legacy.exe package/
+          Copy-Item README.ru.md, TEST-REPORT.md package/
+          Copy-Item licenses package/licenses -Recurse
+          Compress-Archive -Path package/* -DestinationPath dist/LegacyController-win-x64.zip
+          $digest = (Get-FileHash dist/LegacyController-win-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$digest  LegacyController-win-x64.zip" | Set-Content dist/SHA256SUMS.txt -Encoding utf8
+      - name: Publish preliminary release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BUILD_COMMIT: ${{ github.sha }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          @'
+          Предварительная версия Legacy Controller для геймпада DualShock 3 на Windows x64.
+
+          Скачайте LegacyController-win-x64.zip, распакуйте и запустите Legacy.exe.
+          .NET Runtime для Legacy включён. Драйвер DsHidMini устанавливается отдельно из официального источника.
+
+          Автоматические проверки логики и сборка пройдены. Настоящий геймпад, Bluetooth, вибрация и управление в игре ещё не проверены. Полные ограничения и инструкция находятся в README.ru.md внутри архива и в репозитории.
+          '@ | Set-Content dist/release-notes.md -Encoding utf8
+          $tag = "v0.1.0-preview.$env:BUILD_NUMBER"
+          gh release create $tag dist/LegacyController-win-x64.zip dist/SHA256SUMS.txt --target $env:BUILD_COMMIT --title "Legacy Controller 0.1.0 — preview $env:BUILD_NUMBER" --prerelease --notes-file dist/release-notes.md
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }
